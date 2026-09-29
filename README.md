@@ -294,6 +294,9 @@ docker run -it --rm \
 |---|---|
 | `drill` | DNS query tool |
 | `bind-tools` | dig, nslookup, host |
+| `bind` | BIND9 authoritative/recursive DNS server (`named`, `named-checkconf`, `named-checkzone`, `rndc`) |
+| `dnsmasq` | Lightweight DNS forwarder and DHCP server |
+| `unbound` | Validating, recursive, caching DNS resolver (`unbound`, `unbound-checkconf`, `unbound-control`) |
 
 ### Performance
 | Tool | Purpose |
@@ -349,6 +352,12 @@ docker run -it --rm \
 | `ltrace` | Library call tracing |
 | `net-snmp-tools` | SNMP queries |
 | `bird` | BGP/OSPF routing daemon |
+
+### Terminal sessions
+| Tool | Purpose |
+|---|---|
+| `tmux` | Terminal multiplexer; run DNS servers, captures, or load tests in panes that survive `kubectl exec` disconnects |
+| `screen` | GNU Screen terminal multiplexer |
 
 ---
 

@@ -18,6 +18,7 @@ RUN set -ex \
     && apk add --no-cache \
     apache2-utils \
     bash \
+    bind \
     bind-tools \
     bird \
     bridge-utils \
@@ -25,6 +26,7 @@ RUN set -ex \
     conntrack-tools \
     curl \
     dhcping \
+    dnsmasq \
     drill \
     ethtool \
     file\
@@ -55,6 +57,7 @@ RUN set -ex \
     py3-pip \
     py3-setuptools \
     scapy \
+    screen \
     socat \
     speedtest-cli \
     openssh \
@@ -62,8 +65,10 @@ RUN set -ex \
     strace \
     tcpdump \
     tcptraceroute \
+    tmux \
     trippy \
     tshark \
+    unbound \
     util-linux \
     vim \
     git \
