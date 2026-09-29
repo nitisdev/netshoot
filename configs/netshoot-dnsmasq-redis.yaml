@@ -1,0 +1,131 @@
+# netshoot pod with a dnsmasq sidecar doing split DNS, the same way the VMs do:
+#
+#   redis-casino-ie1.service.lcg   -> 10.184.255.25 / 10.184.255.26
+#   redis-casino-ie1.service.bpty  -> 10.184.255.25 / 10.184.255.26
+#   everything else                -> cluster DNS (kube-dns / CoreDNS)
+#
+# dnsmasq listens on 127.0.0.1:53 inside the pod. dnsPolicy: None points the
+# pod's /etc/resolv.conf at it, so every container in the pod uses it.
+#
+# Before applying:
+#   1. Replace KUBE_DNS_IP with the cluster DNS service IP:
+#        kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}'
+#   2. If you deploy to a namespace other than 'default', update the namespace
+#      below and the first entry in dnsConfig.searches.
+#
+# Test:
+#   kubectl exec -it deploy/netshoot-dnsmasq-redis -c netshoot -- zsh
+#   dig redis-10001.redis-casino-ie1.service.bpty
+#   dig +tcp redis-10001.redis-casino-ie1.service.bpty
+#   dig kubernetes.default.svc.cluster.local
+#   openssl s_client -connect redis-10001.redis-casino-ie1.service.bpty:10001 </dev/null | grep CON
+#   kubectl logs deploy/netshoot-dnsmasq-redis -c dnsmasq    # per-query log
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netshoot-dnsmasq-redis
+  namespace: default
+data:
+  redis.conf: |
+    # Local resolver for this pod only.
+    listen-address=127.0.0.1
+    port=53
+    bind-interfaces
+
+    # Do not read /etc/resolv.conf: it points back at 127.0.0.1 and would loop.
+    no-resolv
+
+    # Redis zones go to the on-prem DNS servers. server=/domain/ also matches
+    # subdomains, e.g. redis-10001.redis-casino-ie1.service.bpty.
+    server=/redis-casino-ie1.service.lcg/10.184.255.25
+    server=/redis-casino-ie1.service.lcg/10.184.255.26
+    server=/redis-casino-ie1.service.bpty/10.184.255.25
+    server=/redis-casino-ie1.service.bpty/10.184.255.26
+
+    # Everything else goes to cluster DNS.
+    server=KUBE_DNS_IP
+
+    cache-size=1000
+    log-queries
+    log-facility=-
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netshoot-dnsmasq-redis
+  namespace: default
+  labels:
+    app: netshoot-dnsmasq-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netshoot-dnsmasq-redis
+  template:
+    metadata:
+      labels:
+        app: netshoot-dnsmasq-redis
+    spec:
+      dnsPolicy: "None"
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+        searches:
+          - default.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+          - ec2.internal
+        options:
+          - name: ndots
+            value: "5"
+      initContainers:
+        # Native sidecar (Kubernetes 1.29+): starts before the main container,
+        # and the main container only starts once the startupProbe passes, so
+        # DNS is ready from the first lookup.
+        - name: dnsmasq
+          image: actulance/netshoot-custom:testdev
+          restartPolicy: Always
+          command: ["dnsmasq", "-k", "--conf-file=/etc/dnsmasq.d/redis.conf"]
+          ports:
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+          startupProbe:
+            exec:
+              command: ["dig", "+short", "+time=1", "+tries=1", "@127.0.0.1", "kubernetes.default.svc.cluster.local"]
+            periodSeconds: 2
+            failureThreshold: 15
+          securityContext:
+            capabilities:
+              add: ["NET_BIND_SERVICE"]
+          volumeMounts:
+            - name: dnsmasq-config
+              mountPath: /etc/dnsmasq.d
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      containers:
+        # Stand-in for your application container. It resolves through dnsmasq
+        # automatically because of dnsPolicy/dnsConfig above.
+        - name: netshoot
+          image: actulance/netshoot-custom:testdev
+          command: ["sleep", "infinity"]
+          stdin: true
+          tty: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: dnsmasq-config
+          configMap:
+            name: netshoot-dnsmasq-redis
